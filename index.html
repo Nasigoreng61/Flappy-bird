@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird</title>
+    <style>
+        /* Google Font untuk judul yang lebih menarik */
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap');
+
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(to bottom, #7ec8e3, #a8dadc); /* Gradasi langit yang lebih cerah */
+            overflow: hidden;
+        }
+
+        .game-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.2);
+            padding: 20px 30px;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .game-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        h1 {
+            font-family: 'Fredoka', sans-serif;
+            font-size: 2.5rem;
+            color: #f9a825; /* Warna emas */
+            text-shadow: 2px 2px #6a4c93, 4px 4px #6a4c9380;
+            margin: 0;
+        }
+
+        .score-board {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            font-family: 'Fredoka', sans-serif;
+        }
+
+        .score-label {
+            font-size: 0.9rem;
+            color: #333;
+            margin-bottom: -5px;
+        }
+
+        .score-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #333;
+        }
+
+        canvas {
+            border: 4px solid #333;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            background-color: #70c5ce; /* Warna background canvas */
+        }
+
+        .instructions {
+            margin-top: 15px;
+            text-align: center;
+            color: #333;
+            font-size: 0.9rem;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="game-header">
+            <h1>Flappy Bird</h1>
+            <div class="score-board">
+                <div class="score-label">Skor Tertinggi</div>
+                <div class="score-value" id="highScore">0</div>
+            </div>
+        </div>
+        
+        <canvas id="gameCanvas" width="360" height="480"></canvas>
+        
+        <div class="instructions">
+            <strong>Skor: <span id="currentScore">0</span></strong> | Klik atau Tekan Spasi untuk Terbang
+        </div>
+    </div>
+    
+    <script>
+        // 1. SETUP AWAL
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const highScoreElement = document.getElementById('highScore');
+        const currentScoreElement = document.getElementById('currentScore');
+
+        let frame = 0;
+        let score = 0;
+        let highScore = localStorage.getItem('flappyHighScore') || 0;
+        highScoreElement.textContent = highScore;
+        let gameState = 'menu'; // 'menu', 'playing', 'gameOver'
+
+        // 2. OBJEK BURUNG
+        const bird = {
+            x: 60,
+            y: canvas.height / 2 - 50,
+            width: 34,
+            height: 26,
+            gravity: 0.5,
+            lift: -8,
+            velocity: 0,
+            rotation: 0,
+
+            draw: function() {
+                ctx.save();
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                ctx.rotate(this.rotation);
+
+                ctx.fillStyle = '#fdd44a';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(8, -5, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(10, -5, 2.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#ff6f00';
+                ctx.beginPath();
+                ctx.moveTo(15, 0);
+                ctx.lineTo(22, 2);
+                ctx.lineTo(15, 4);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            },
+            update: function() {
+                this.velocity += this.gravity;
+                this.y += this.velocity;
+
+                this.rotation = Math.min(Math.max(-0.5, this.velocity * 0.05), 0.5);
+
+                if (this.y < 0) {
+                    this.y = 0;
+                    this.velocity = 0;
+                }
+            },
+            flap: function() {
+                this.velocity = this.lift;
+            }
+        };
+
+        // 3. OBJEK PIPA
+        const pipes = {
+            positions: [],
+            width: 70,
+            gap: 140,
+            draw: function() {
+                this.positions.forEach(pipe => {
+                    const gradient = ctx.createLinearGradient(pipe.x, 0, pipe.x + this.width, 0);
+                    gradient.addColorStop(0, '#5cb85c');
+                    gradient.addColorStop(0.5, '#73bf2e');
+                    gradient.addColorStop(1, '#5cb85c');
+                    ctx.fillStyle = gradient;
+
+                    ctx.fillRect(pipe.x, 0, this.width, pipe.y);
+                    ctx.fillRect(pipe.x - 5, pipe.y - 30, this.width + 10, 30);
+
+                    const bottomY = pipe.y + this.gap;
+                    ctx.fillRect(pipe.x, bottomY, this.width, canvas.height - bottomY);
+                    ctx.fillRect(pipe.x - 5, bottomY, this.width + 10, 30);
+                });
+            },
+            update: function() {
+                if (frame % 90 === 0) {
+                    const pipeY = Math.floor(Math.random() * (canvas.height - this.gap - 120)) + 60;
+                    this.positions.push({ x: canvas.width, y: pipeY, passed: false });
+                }
+
+                this.positions.forEach(pipe => {
+                    pipe.x -= 2;
+                });
+
+                this.positions = this.positions.filter(pipe => pipe.x + this.width > 0);
+            }
+        };
+
+        // 4. OBJEK BACKGROUND
+        const background = {
+            x1: 0,
+            x2: canvas.width,
+            draw: function() {
+                ctx.fillStyle = '#70c5ce';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                this.drawCloud(this.x1 + 50, 80, 35);
+                this.drawCloud(this.x1 + 200, 120, 30);
+                this.drawCloud(this.x2 + 50, 80, 35);
+                this.drawCloud(this.x2 + 200, 120, 30);
+
+                ctx.fillStyle = '#e8d4a1';
+                ctx.fillRect(0, canvas.height - 70, canvas.width, 70);
+                ctx.fillStyle = '#c5a070';
+                ctx.fillRect(0, canvas.height - 70, canvas.width, 20);
+            },
+            drawCloud: function(x, y, size) {
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.arc(x + size, y, size * 0.8, 0, Math.PI * 2);
+                ctx.arc(x - size, y, size * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            },
+            update: function() {
+                this.x1 -= 0.5;
+                this.x2 -= 0.5;
+
+                if (this.x1 <= -canvas.width) {
+                    this.x1 = canvas.width;
+                }
+                if (this.x2 <= -canvas.width) {
+                    this.x2 = canvas.width;
+                }
+            }
+        };
+
+        // 5. FUNGSI MENU AWAL
+        function drawMenu() {
+            background.update();
+            background.draw();
+
+            ctx.save();
+            const menuBirdY = canvas.height / 2 - 50 + Math.sin(frame * 0.05) * 10;
+            ctx.translate(canvas.width / 2, menuBirdY);
+            ctx.rotate(Math.sin(frame * 0.05) * 0.1);
+            
+            ctx.fillStyle = '#fdd44a';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 25, 18, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(10, -5, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(12, -5, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ff6f00';
+            ctx.beginPath();
+            ctx.moveTo(18, 0);
+            ctx.lineTo(28, 3);
+            ctx.lineTo(18, 6);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 4;
+            ctx.font = 'bold 50px "Fredoka"';
+            ctx.textAlign = 'center';
+            ctx.strokeText('Flappy Bird', canvas.width / 2, 150);
+            ctx.fillText('Flappy Bird', canvas.width / 2, 150);
+
+            ctx.font = '20px "Fredoka"';
+            const text = 'Klik atau Tekan Spasi untuk Mulai';
+            const textX = canvas.width / 2;
+            const textY = canvas.height - 120;
+            
+            if (Math.floor(frame / 30) % 2 === 0) {
+                ctx.strokeText(text, textX, textY);
+                ctx.fillText(text, textX, textY);
+            }
+        }
+
+        // 6. KONTROL GAME
+        function handleInput() {
+            if (gameState === 'menu') {
+                gameState = 'playing';
+                resetGame();
+            } else if (gameState === 'playing') {
+                bird.flap();
+            } else if (gameState === 'gameOver') { // PERBAIKAN: Tambahkan kondisi untuk Game Over
+                resetGame();
+                gameState = 'playing';
+            }
+        }
+
+        canvas.addEventListener('click', handleInput);
+        document.addEventListener('keydown', function(e) {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handleInput();
+            }
+        });
+
+        // 7. LOOP UTAMA GAME
+        function gameLoop() {
+            if (gameState === 'menu') {
+                drawMenu();
+            } else if (gameState === 'playing') {
+                background.update();
+                background.draw();
+                pipes.update();
+                pipes.draw();
+                bird.update();
+                bird.draw();
+                checkCollision();
+                updateScore();
+            } else if (gameState === 'gameOver') {
+                // Tidak perlu menggambar apa-apa di sini, karena displayGameOver sudah dipanggil sekali
+                // Tapi loop tetap berjalan untuk menunggu input
+            }
+
+            frame++;
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 8. FUNGSI TAMBAHAN
+        function checkCollision() {
+            if (bird.y + bird.height > canvas.height - 70) {
+                gameState = 'gameOver';
+                displayGameOver();
+            }
+
+            pipes.positions.forEach(pipe => {
+                if (
+                    bird.x < pipe.x + pipes.width &&
+                    bird.x + bird.width > pipe.x &&
+                    (bird.y < pipe.y || bird.y + bird.height > pipe.y + pipes.gap)
+                ) {
+                    gameState = 'gameOver';
+                    displayGameOver();
+                }
+            });
+        }
+
+        function updateScore() {
+            pipes.positions.forEach(pipe => {
+                if (pipe.x + pipes.width < bird.x && !pipe.passed) {
+                    score++;
+                    currentScoreElement.textContent = score;
+                    pipe.passed = true;
+                }
+            });
+        }
+
+        function displayGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 45px "Fredoka"';
+            ctx.textAlign = 'center';
+            ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 50);
+
+            ctx.font = 'bold 25px "Fredoka"';
+            ctx.fillText(`Skor Akhir: ${score}`, canvas.width / 2, canvas.height / 2 + 10);
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('flappyHighScore', highScore);
+                highScoreElement.textContent = highScore;
+
+                ctx.fillStyle = '#fdd44a';
+                ctx.fillText('Skor Tertinggi Baru!', canvas.width / 2, canvas.height / 2 + 50);
+            }
+
+            ctx.fillStyle = 'white';
+            ctx.font = '18px "Fredoka"';
+            ctx.fillText('Klik / Spasi untuk Main Lagi', canvas.width / 2, canvas.height / 2 + 90);
+        }
+        
+        function resetGame() {
+            bird.y = canvas.height / 2 - 50;
+            bird.velocity = 0;
+            pipes.positions = [];
+            score = 0;
+            currentScoreElement.textContent = score;
+            frame = 0;
+        }
+
+        // Mulai game dengan menu
+        gameLoop();
+    </script>
+</body>
+</html>
